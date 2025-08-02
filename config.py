@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = "8106538116:AAG6sVrZnU-hZWyCfk0hG7kT8u9ezZYY0pA"
+BOT_TOKEN = "####"
 MONGO_URI = "mongodb://localhost:27017/"
 DATABASE_NAME = "filebot"
 
