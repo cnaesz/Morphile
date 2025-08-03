@@ -94,3 +94,32 @@ def reset_all_daily_usage():
     """Resets the daily_usage for all users to 0."""
     result = users.update_many({}, {"$set": {"daily_usage": 0, "last_reset_day": datetime.utcnow()}})
     return result.modified_count
+
+def revoke_premium(user_id):
+    """Revokes premium status from a user, reverting them to the free plan."""
+    users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "is_premium": False,
+            "premium_expires": None,
+            "daily_limit_bytes": config.FREE_DAILY_LIMIT
+        }}
+    )
+
+def get_db_statistics():
+    """Returns a dictionary with database statistics."""
+    total_users = users.count_documents({})
+    premium_users = users.count_documents({"is_premium": True})
+
+    # To get total usage, we need to aggregate the daily_usage field
+    pipeline = [
+        {"$group": {"_id": None, "total_usage": {"$sum": "$daily_usage"}}}
+    ]
+    result = list(users.aggregate(pipeline))
+    total_daily_usage = result[0]['total_usage'] if result else 0
+
+    return {
+        "total_users": total_users,
+        "premium_users": premium_users,
+        "total_daily_usage_bytes": total_daily_usage,
+    }

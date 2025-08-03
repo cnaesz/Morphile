@@ -6,10 +6,11 @@ from telegram.ext import (
 )
 import os
 import logging
+import time
 from database import get_user, update_usage
 from downloader import download_file
-from uploader import upload_and_get_link
 import config
+from admin.handlers import get_admin_conversation_handler
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -44,6 +45,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def upgrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the /upgrade command, showing premium options."""
+    keyboard = [[InlineKeyboardButton("💎 Upgrade to Premium", web_app=WebAppInfo(url=config.WEB_APP_URL))]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    message = (
+        "🚀 **Unlock Your Full Potential!** 🚀\n\n"
+        "Upgrade to a Premium account to enjoy:\n"
+        "✅ **Massive 50 GB Daily Limit**\n"
+        "✅ **Highest Priority & Speed**\n"
+        "✅ **No Ads, No Interruptions**\n\n"
+        "Click the button below to see our flexible plans and upgrade instantly!"
+    )
+
+    await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='MarkdownV2')
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user(user_id)
@@ -68,8 +85,12 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
 
     # Check usage before downloading
     if user['daily_usage'] >= user['daily_limit_bytes']:
+        keyboard = [[InlineKeyboardButton("💎 Upgrade to Premium", web_app=WebAppInfo(url=config.WEB_APP_URL))]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "⚠️ You have reached your daily usage limit. Upgrade to get more."
+            "⚠️ You've reached your daily usage limit of 100 MB.\n\n"
+            "Upgrade to a Premium account to get up to 50 GB per day, faster speeds, and more!",
+            reply_markup=reply_markup
         )
         return
 
@@ -112,8 +133,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         return
 
     if user['daily_usage'] + file_obj.file_size > user['daily_limit_bytes']:
+        keyboard = [[InlineKeyboardButton("💎 Upgrade to Premium", web_app=WebAppInfo(url=config.WEB_APP_URL))]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "⚠️ This upload would exceed your daily limit. Please upgrade for more capacity."
+            "⚠️ This upload would exceed your daily limit of 100 MB.\n\n"
+            "Upgrade to a Premium account for more capacity!",
+            reply_markup=reply_markup
         )
         return
 
@@ -121,33 +146,64 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         await update.message.reply_text("❌ File size cannot exceed 2 GB.")
         return
 
-    await update.message.reply_text("📤 Uploading to server...")
+    # --- Time Estimation ---
+    # Assume an average speed of 5 MB/s for downloading from Telegram
+    avg_speed_mbps = 5
+    estimated_seconds = file_obj.file_size / (avg_speed_mbps * 1024 * 1024)
+    if estimated_seconds < 5:
+        estimation_message = "a few moments"
+    else:
+        estimation_message = f"about {int(estimated_seconds)} seconds"
+
+    await update.message.reply_text(
+        f"✅ Received your file. Creating a direct link will take {estimation_message}.\n"
+        "Please wait..."
+    )
+    # --- End Time Estimation ---
+
     try:
         file = await context.bot.get_file(file_obj.file_id)
         filename = file_obj.file_name or "uploaded_file"
-        filepath = os.path.join(config.DOWNLOAD_DIR, f"{user_id}_{filename}")
+        # --- Unique Filename Generation ---
+        unique_filename = f"{user_id}_{int(time.time())}_{filename}"
+        filepath = os.path.join(config.DOWNLOAD_DIR, unique_filename)
+        # --- End Unique Filename Generation ---
         os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)
         await file.download_to_drive(filepath)
 
         # Update usage after successful download to server
         update_usage(user_id, file_obj.file_size)
 
-        link, error = upload_and_get_link(filepath)
-        if error:
-            await update.message.reply_text(f"❌ Error creating link: {error}")
-        else:
-            await update.message.reply_text(f"✅ Your file link:\n{link}")
+        # --- Self-hosted Link Generation ---
+        # The file is already downloaded to the correct directory.
+        # Now, we just construct the public URL for it.
+        base_filename = os.path.basename(filepath)
+        link = f"{config.NGINX_URL}/{base_filename}"
+
+        await update.message.reply_text(
+            f"✅ Your file is ready!\n\n"
+            f"Direct Link (expires in 24 hours):\n{link}"
+        )
+        # --- End Link Generation ---
 
     except Exception as e:
-        await update.message.reply_text(f"❌ An error occurred: {e}")
-    finally:
+        await update.message.reply_text(f"❌ An error occurred during processing: {e}")
+        # If an error happens after download, we must clean up the file
+        # and revert the usage count, as no link was generated.
         if 'filepath' in locals() and os.path.exists(filepath):
             os.remove(filepath)
+            update_usage(user_id, -file_obj.file_size)
 
 def main():
     app = Application.builder().token(config.BOT_TOKEN).build()
 
+    # Add admin handlers
+    admin_handler = get_admin_conversation_handler()
+    app.add_handler(admin_handler)
+
+    # Add user-facing handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("upgrade", upgrade_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.AUDIO | filters.VIDEO, handle_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_message))

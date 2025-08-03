@@ -19,7 +19,7 @@ DOWNLOAD_DIR = "/var/www/files"
 NGINX_URL = "https://yourdomain.com/files"
 
 # Usage Limits
-FREE_DAILY_LIMIT = 1 * 1024 * 1024 * 1024  # 1 GB
+FREE_DAILY_LIMIT = 100 * 1024 * 1024  # 100 MB
 PREMIUM_DAILY_LIMIT_50GB = 50 * 1024 * 1024 * 1024  # 50 GB
 PREMIUM_DAILY_LIMIT_100GB = 100 * 1024 * 1024 * 1024 # 100 GB
 
