@@ -153,13 +153,15 @@ async def prompt_premium_action(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['target_user_id'] = user_id
     status = "Premium ✨" if user_data.get('is_premium') else "Free"
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Grant Premium (1 Month, 50GB)", callback_data="admin_grant_premium"),
-            InlineKeyboardButton("❌ Revoke Premium", callback_data="admin_revoke_premium")
-        ],
-        [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="admin_back_to_main")]
-    ]
+    # --- Create a dynamic keyboard for all available plans ---
+    keyboard = []
+    for plan_id, details in config.PRICING.items():
+        limit_gb = details['limit'] / (1024**3)
+        text = f"✅ Grant {details['duration_days']}d, {limit_gb}GB"
+        keyboard.append([InlineKeyboardButton(text, callback_data=f"admin_grant_{plan_id}")])
+
+    keyboard.append([InlineKeyboardButton("❌ Revoke Premium", callback_data="admin_revoke_premium")])
+    keyboard.append([InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="admin_back_to_main")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
@@ -182,12 +184,14 @@ async def perform_premium_action(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("Error: Target user ID not found. Please start over.")
         return await back_to_main_menu(update, context)
 
-    if action == "admin_grant_premium":
-        # Using the first plan as a default for manual grant
-        plan_name = list(config.PRICING.keys())[0]
-        plan = config.PRICING[plan_name]
-        set_premium(user_id, plan['duration_days'], plan['limit'])
-        await query.edit_message_text(f"✅ Successfully granted premium plan '{plan_name}' to user `{user_id}`.")
+    if action.startswith("admin_grant_"):
+        plan_name = action.replace("admin_grant_", "")
+        plan = config.PRICING.get(plan_name)
+        if plan:
+            set_premium(user_id, plan['duration_days'], plan['limit'])
+            await query.edit_message_text(f"✅ Successfully granted premium plan '{plan_name}' to user `{user_id}`.")
+        else:
+            await query.edit_message_text(f"❌ Error: Plan '{plan_name}' not found.")
 
     elif action == "admin_revoke_premium":
         revoke_premium(user_id)
@@ -218,7 +222,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_premium_action)
             ],
             MANAGE_PREMIUM_ACTION: [
-                CallbackQueryHandler(perform_premium_action, pattern="^admin_(grant|revoke)_premium$"),
+                CallbackQueryHandler(perform_premium_action, pattern="^admin_(grant_.+|revoke_premium)$"),
                 CallbackQueryHandler(back_to_main_menu, pattern="^admin_back_to_main$"),
             ],
         },

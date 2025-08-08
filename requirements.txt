@@ -2,3 +2,6 @@ python-telegram-bot[all]==20.6
 pymongo
 yt-dlp
 requests
+httpx
+Flask
+gunicorn

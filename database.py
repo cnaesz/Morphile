@@ -7,10 +7,12 @@ client = MongoClient(config.MONGO_URI)
 db = client[config.DATABASE_NAME]
 users = db.users
 payments = db.payments
+pending_payments = db.pending_payments
 
 # --- Database Indexing ---
 # Create an index on user_id for faster lookups.
 users.create_index([("user_id", ASCENDING)], unique=True)
+pending_payments.create_index([("authority", ASCENDING)], unique=True)
 
 def get_user(user_id):
     """Fetches a user from the database, creating them if they don't exist."""
@@ -30,23 +32,14 @@ def get_user(user_id):
 
 def update_usage(user_id, added_bytes):
     """Updates a user's daily usage and returns their new total usage."""
-    user = get_user(user_id)
-    now = datetime.utcnow()
-
-    # Reset daily usage if a new day has started
-    if now.date() > user["last_reset_day"].date():
-        users.update_one(
-            {"user_id": user_id},
-            {"$set": {"daily_usage": 0, "last_reset_day": now}}
-        )
-        user["daily_usage"] = 0
-
-    new_usage = user["daily_usage"] + added_bytes
-    users.update_one(
+    # The daily reset is now handled by the cleanup.py script.
+    # This function now only increments the usage.
+    result = users.find_one_and_update(
         {"user_id": user_id},
-        {"$inc": {"daily_usage": added_bytes}}
+        {"$inc": {"daily_usage": added_bytes}},
+        return_document=True
     )
-    return new_usage
+    return result['daily_usage'] if result else 0
 
 def set_premium(user_id, duration_days, limit_bytes):
     """Grants premium status to a user with a specified duration and daily limit."""
@@ -123,3 +116,17 @@ def get_db_statistics():
         "premium_users": premium_users,
         "total_daily_usage_bytes": total_daily_usage,
     }
+
+def create_pending_payment(authority: str, user_id: int, plan: str, amount: int):
+    """Stores a pending payment authority from Zarinpal."""
+    pending_payments.insert_one({
+        "authority": authority,
+        "user_id": user_id,
+        "plan": plan,
+        "amount": amount,
+        "created_at": datetime.utcnow()
+    })
+
+def get_and_delete_pending_payment(authority: str):
+    """Retrieves and deletes a pending payment, ensuring it's used only once."""
+    return pending_payments.find_one_and_delete({"authority": authority})

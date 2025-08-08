@@ -1,54 +1,43 @@
 # cleanup.py
+import sys
 import os
-import time
 from datetime import datetime
-import config
-from database import check_premium_status, reset_all_daily_usage
 
-def cleanup_old_files():
-    """Removes files from the download directory that are older than 24 hours."""
-    now = time.time()
-    cutoff = now - (24 * 3600)  # 24 hours in seconds
-    cleaned_count = 0
-    folder = config.DOWNLOAD_DIR
+# Add the project root to the Python path to allow running this script standalone
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-    if not os.path.exists(folder):
-        print(f"📁 Download directory not found at {folder}. Skipping file cleanup.")
-        return
+try:
+    from database import reset_all_daily_usage, check_premium_status
+except ImportError:
+    print("Error: Could not import database module. Make sure this script is in the project root.")
+    sys.exit(1)
 
-    print("--- Starting File Cleanup ---")
-    for filename in os.listdir(folder):
-        filepath = os.path.join(folder, filename)
-        if os.path.isfile(filepath):
-            try:
-                if os.path.getctime(filepath) < cutoff:
-                    os.remove(filepath)
-                    print(f"🧹 Deleted old file: {filename}")
-                    cleaned_count += 1
-            except Exception as e:
-                print(f"❌ Error deleting {filename}: {e}")
-    print(f"✅ Cleaned {cleaned_count} old files.")
-
-def perform_database_cleanup():
-    """Deactivates expired premium accounts and resets daily usage for all users."""
-    print("\n--- Starting Database Cleanup ---")
-
-    # Deactivate expired premium users
-    expired_count = check_premium_status()
-    print(f"🔄 Deactivated {expired_count} expired premium accounts.")
+def perform_cleanup():
+    """
+    Runs the daily cleanup tasks for the database.
+    1. Resets daily usage for all users.
+    2. Checks for and revokes expired premium subscriptions.
+    """
+    print(f"--- Starting daily cleanup at {datetime.utcnow()} UTC ---")
 
     # Reset daily usage for all users
-    reset_count = reset_all_daily_usage()
-    print(f"📊 Reset daily usage for {reset_count} users.")
+    try:
+        modified_count = reset_all_daily_usage()
+        print(f"✅ Successfully reset daily usage for {modified_count} users.")
+    except Exception as e:
+        print(f"❌ Error resetting daily usage: {e}")
 
-    print("✅ Database cleanup complete.")
+    # Check for expired premium plans
+    try:
+        expired_count = check_premium_status()
+        if expired_count > 0:
+            print(f"✅ Successfully revoked {expired_count} expired premium subscriptions.")
+        else:
+            print("✅ No expired premium subscriptions found.")
+    except Exception as e:
+        print(f"❌ Error checking premium status: {e}")
 
-def main():
-    """Main function to run all cleanup tasks."""
-    print(f"🚀 Starting cleanup job at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    cleanup_old_files()
-    perform_database_cleanup()
-    print(f"🏁 Cleanup job finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("--- Daily cleanup finished ---")
 
 if __name__ == "__main__":
-    main()
+    perform_cleanup()

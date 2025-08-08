@@ -5,10 +5,13 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
+# Assumes a virtual environment is created at this path
 WorkingDirectory=/home/ubuntu/telegram-file-bot
-ExecStart=/usr/bin/python3 bot.py
+ExecStart=/home/ubuntu/telegram-file-bot/venv/bin/python3 bot.py
 Restart=always
 RestartSec=10
+# It's good practice to set environment variables for secrets
+# Environment="BOT_TOKEN=your-token-here"
 
 [Install]
 WantedBy=multi-user.target
