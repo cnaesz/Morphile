@@ -1,0 +1,14 @@
+[Unit]
+Description=Gunicorn instance to serve the webapp for the Telegram Bot
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/telegram-file-bot
+# Assumes a virtual environment is created at this path
+ExecStart=/home/ubuntu/telegram-file-bot/venv/bin/gunicorn --workers 4 --bind 127.0.0.1:5001 webapp:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

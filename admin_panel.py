@@ -49,14 +49,11 @@ def grant_premium(user_id, plan_name):
     print(f"✅ Successfully granted premium plan '{plan_name}' to user {user_id} for {duration} days.")
     user_info(user_id)
 
-def revoke_premium(user_id):
-    """Revokes premium status from a user."""
-    # Setting premium with 0 duration and free limit effectively revokes it.
-    set_premium(user_id, 0, config.FREE_DAILY_LIMIT)
-    # We also need to manually set is_premium to False
-    from database import users
-    users.update_one({"user_id": user_id}, {"$set": {"is_premium": False, "premium_expires": None}})
+from database import revoke_premium as db_revoke_premium
 
+def revoke_premium(user_id):
+    """Revokes premium status from a user using the database function."""
+    db_revoke_premium(user_id)
     print(f"✅ Successfully revoked premium status from user {user_id}.")
     user_info(user_id)
 

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upgrade Account</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #000000;
+            --tg-theme-button-color: #0088cc;
+            --tg-theme-button-text-color: #ffffff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: var(--tg-theme-bg-color);
+            color: var(--tg-theme-text-color);
+        }
+        .plan-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .plan-card {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .plan-card:hover {
+            border-color: var(--tg-theme-button-color);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .plan-title { font-size: 1.2em; font-weight: bold; }
+        .plan-price { font-size: 1.5em; font-weight: bold; margin: 10px 0; color: var(--tg-theme-button-color); }
+        .plan-details { font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+    <h2>💎 Upgrade Your Account</h2>
+    <p>Select a plan to continue:</p>
+
+    <div class="plan-container">
+        {% for plan_id, details in plans.items() %}
+        <div class="plan-card" onclick="selectPlan('{{ plan_id }}')">
+            <div class="plan-title">{{ details.duration_days }} Days - {{ (details.limit / (1024**3)) | round(0) }} GB Daily</div>
+            <div class="plan-price">{{ "{:,.0f}".format(details.price) }} Toman</div>
+            <div class="plan-details">Click to purchase this plan</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        function selectPlan(planId) {
+            // Ask for confirmation before proceeding
+            if (confirm("Are you sure you want to purchase the '" + planId + "' plan?")) {
+                // Send the selected plan ID back to the bot
+                Telegram.WebApp.sendData(JSON.stringify({ plan_id: planId }));
+                // Close the Mini App
+                Telegram.WebApp.close();
+            }
+        }
+
+        // Initialize the Mini App
+        Telegram.WebApp.ready();
+    </script>
+</body>
+</html>

@@ -7,10 +7,12 @@ from telegram.ext import (
 import os
 import logging
 import time
+import json
 from database import get_user, update_usage
 from downloader import download_file
 import config
 from admin.handlers import get_admin_conversation_handler
+from zarinpal import create_payment_link
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -21,12 +23,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db_user = get_user(user.id)
 
-    # Check for expired premium
-    if db_user['is_premium'] and db_user['premium_expires'] and datetime.utcnow() > db_user['premium_expires']:
-        # This is a fallback check. The main check should be in a cron job.
-        from database import check_premium_status
-        check_premium_status()
-        db_user = get_user(user.id) # Re-fetch user
+    # The check for expired premium is now handled by the cleanup.py cron job.
+    # The fallback check has been removed for efficiency.
 
     keyboard = [[InlineKeyboardButton("💎 Upgrade Account", web_app=WebAppInfo(url=config.WEB_APP_URL))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -66,9 +64,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(user_id)
 
     if update.message.web_app_data:
-        # Handle data from the Mini App (e.g., after a purchase)
-        # This part needs to be implemented based on how the web app sends data.
-        await update.message.reply_text("Thank you for your purchase!")
+        # Data received from the Mini App
+        try:
+            data = json.loads(update.message.web_app_data.data)
+            plan_id = data.get("plan_id")
+
+            if not plan_id:
+                await update.message.reply_text("Invalid data received from the app.")
+                return
+
+            # --- Security: Get price from server-side config, not from client ---
+            plan_details = config.PRICING.get(plan_id)
+            if not plan_details:
+                await update.message.reply_text(f"Invalid plan selected: {plan_id}")
+                return
+
+            amount = plan_details['price']
+
+            await update.message.reply_text("Generating your secure payment link, please wait...")
+
+            # Create the payment link
+            payment_link = create_payment_link(amount=amount, user_id=user_id, plan=plan_id)
+
+            if payment_link:
+                keyboard = [[InlineKeyboardButton("💳 Pay Now", url=payment_link)]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "Your payment link is ready. Click the button below to complete your purchase.",
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text("Sorry, we couldn't create a payment link at this time. Please try again later.")
+        except (json.JSONDecodeError, KeyError) as e:
+            await update.message.reply_text(f"An error occurred while processing your request: {e}")
         return
 
     text = update.message.text
@@ -88,17 +116,20 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         keyboard = [[InlineKeyboardButton("💎 Upgrade to Premium", web_app=WebAppInfo(url=config.WEB_APP_URL))]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "⚠️ You've reached your daily usage limit of 100 MB.\n\n"
-            "Upgrade to a Premium account to get up to 50 GB per day, faster speeds, and more!",
+            "⚠️ You've reached your daily usage limit.\n\n"
+            "Upgrade to a Premium account to get up to 100 GB per day, faster speeds, and more!",
             reply_markup=reply_markup
         )
         return
 
-    await update.message.reply_text("📥 Downloading file...")
-    filepath, error = download_file(url, max_size=user['daily_limit_bytes'])
+    # --- Non-blocking download ---
+    # Inform user and then perform the async download
+    await update.message.reply_text("📥 Starting your download... The bot will remain responsive.")
+    filepath, error = await download_file(url, max_size=user['daily_limit_bytes'])
     if error:
-        await update.message.reply_text(f"❌ Error: {error}")
+        await update.message.reply_text(f"❌ Download Error: {error}")
         return
+    # --- End non-blocking download ---
 
     file_size = os.path.getsize(filepath)
     new_usage = update_usage(user_id, file_size)
