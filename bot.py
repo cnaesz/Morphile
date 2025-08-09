@@ -14,10 +14,14 @@ import config
 from admin.handlers import get_admin_conversation_handler
 from zarinpal import create_payment_link
 
+# --- Logging Setup ---
+# Sets the logging level based on the DEBUG flag in config.
+log_level = logging.DEBUG if config.DEBUG else logging.INFO
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=log_level
 )
+logging.info(f"Logging level set to {'DEBUG' if config.DEBUG else 'INFO'}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user

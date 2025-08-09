@@ -2,10 +2,27 @@
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timedelta
 import config
+import logging
 
+# --- Database Connection ---
+# The connection is established based on the MONGO_URI from the config.
+# A log message indicates whether a local or remote (Atlas) DB is used.
+logging.info("Initializing database connection...")
 client = MongoClient(config.MONGO_URI)
 db = client[config.DATABASE_NAME]
 users = db.users
+
+if "localhost" in config.MONGO_URI:
+    logging.info(f"Connected to LOCAL MongoDB at {config.MONGO_URI}")
+else:
+    logging.info(f"Connected to REMOTE MongoDB Atlas instance.")
+
+# --- Test Connection ---
+try:
+    client.admin.command('ping')
+    logging.info("MongoDB connection successful.")
+except Exception as e:
+    logging.error(f"MongoDB connection failed: {e}")
 payments = db.payments
 pending_payments = db.pending_payments
 
