@@ -1,12 +1,19 @@
 import os
 
+# --- Environment Settings ---
+# The DEBUG flag enables more detailed logging.
+# For production, it is strongly recommended to set DEBUG = False.
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+
 # --- Security Note ---
 # For production, it's strongly recommended to use environment variables
 # instead of hardcoding secrets like tokens and database URIs.
-# Example: BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "####")
 
-BOT_TOKEN = "####"
-MONGO_URI = "mongodb://localhost:27017/"
+# --- Database Configuration ---
+# If MONGO_URI is in the environment, it will be used.
+# Otherwise, it defaults to a local MongoDB instance.
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 DATABASE_NAME = "filebot"
 
 # File paths
