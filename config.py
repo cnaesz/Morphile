@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Environment Settings ---
 # The DEBUG flag enables more detailed logging.
@@ -8,7 +12,9 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 # --- Security Note ---
 # For production, it's strongly recommended to use environment variables
 # instead of hardcoding secrets like tokens and database URIs.
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "####")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is not set! Please add it to your .env file or environment variables.")
 
 # --- Database Configuration ---
 # If MONGO_URI is in the environment, it will be used.
@@ -16,14 +22,20 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "####")
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 DATABASE_NAME = "filebot"
 
-# File paths
-DOWNLOAD_DIR = "/var/www/files"
-# --- Security Note ---
-# If you configure NGINX_URL, ensure that your web server configuration
-# does not allow directory listing for the DOWNLOAD_DIR.
-# Files in this directory should only be accessible via the generated links,
-# not by browsing the directory.
-NGINX_URL = "https://yourdomain.com/files"
+# --- File paths ---
+# Use a local 'downloads' directory for storing files.
+# This is more portable than a system path like /var/www.
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads")
+# Ensure the download directory exists
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+
+# --- Web Server URLs ---
+# These URLs are used for the web app and for serving files.
+# They can be overridden by environment variables, which is useful for ngrok.
+NGINX_URL = os.environ.get("NGINX_URL", "http://localhost:8080/files")
+WEB_APP_URL = os.environ.get("WEB_APP_URL", "http://localhost:5001/app")
+
 
 # Usage Limits
 FREE_DAILY_LIMIT = 100 * 1024 * 1024  # 100 MB
@@ -39,11 +51,14 @@ PRICING = {
 }
 
 # Zarinpal
-ZARINPAL_MERCHANT = "your-zarinpal-merchant-id"
-ZARINPAL_CALLBACK = "https://yourdomain.com/verify"
+ZARINPAL_MERCHANT = os.environ.get("ZARINPAL_MERCHANT")
+ZARINPAL_CALLBACK = os.environ.get("ZARINPAL_CALLBACK", "http://localhost:5001/verify")
+
 
 # Admin
-ADMIN_IDS = [123456789]  # Numeric admin IDs
+# Expects a comma-separated string of admin IDs, e.g., "12345,67890"
+admin_ids_str = os.environ.get("ADMIN_IDS", "")
+ADMIN_IDS = [int(admin_id.strip()) for admin_id in admin_ids_str.split(',') if admin_id.strip()]
 
-# Mini App
-WEB_APP_URL = "https://yourdomain.com/app"  # Purchase page
+if not ADMIN_IDS:
+    print("Warning: ADMIN_IDS is not set. Admin panel will not be available to anyone.")
