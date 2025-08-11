@@ -8,6 +8,7 @@ import os
 import logging
 import time
 import json
+import traceback
 from database import get_user, update_usage
 from downloader import download_file
 import config
@@ -21,7 +22,43 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=log_level
 )
-logging.info(f"Logging level set to {'DEBUG' if config.DEBUG else 'INFO'}")
+logger = logging.getLogger(__name__)
+
+# --- Global Error Handler ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    # traceback.format_exception returns the usual python message about an exception, but as a
+    # list of strings rather than a single string, so we have to join them together.
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_string = "".join(tb_list)
+
+    # Build the message with some markup and additional information about the error.
+    message = (
+        f"An exception was raised while handling an update\n"
+        f"<pre>update = {json.dumps(update.to_dict(), indent=2, ensure_ascii=False)}"
+        "</pre>\n\n"
+        f"<pre>context.chat_data = {str(context.chat_data)}</pre>\n\n"
+        f"<pre>context.user_data = {str(context.user_data)}</pre>\n\n"
+        f"<pre>{tb_string}</pre>"
+    )
+
+    # Finally, send the message
+    if config.DEBUG:
+        # If in debug mode, send the detailed error to the user who caused it
+        if update and hasattr(update, 'effective_chat') and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="A critical error occurred. The developer has been notified.",
+            )
+    else:
+        # In production, just log it. The developer can check the logs.
+        pass # The error is already logged by logger.error
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """A simple command to check if the bot is responsive."""
+    await update.message.reply_text(f"Pong! The bot is alive.\n{time.asctime()}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -64,8 +101,12 @@ async def upgrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='MarkdownV2')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user = get_user(user_id)
+    """Main message handler. Logs incoming messages and routes them."""
+    user = update.effective_user
+    logger.info(f"Received message from {user.id} ({user.username}): {update.message.text or '<file>'}")
+
+    user_id = user.id
+    db_user = get_user(user_id)
 
     if update.message.web_app_data:
         # Data received from the Mini App
@@ -105,9 +146,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text
     if text and (text.startswith("http://") or text.startswith("https://")):
-        await handle_link(update, context, user)
+        await handle_link(update, context, db_user)
     elif update.message.document or update.message.audio or update.message.video:
-        await handle_file(update, context, user)
+        await handle_file(update, context, db_user)
     else:
         await update.message.reply_text("Please send a valid link or a file.")
 
@@ -232,11 +273,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
 def main():
     app = Application.builder().token(config.BOT_TOKEN).build()
 
+    # --- Error Handling ---
+    app.add_error_handler(error_handler)
+
     # Add admin handlers
     admin_handler = get_admin_conversation_handler()
     app.add_handler(admin_handler)
 
     # Add user-facing handlers
+    app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("upgrade", upgrade_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
