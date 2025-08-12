@@ -38,7 +38,7 @@ WEB_APP_URL = os.environ.get("WEB_APP_URL", "http://localhost:5001/app")
 
 
 # Usage Limits
-FREE_DAILY_LIMIT = 100 * 1024 * 1024  # 100 MB
+FREE_DAILY_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GB
 PREMIUM_DAILY_LIMIT_50GB = 50 * 1024 * 1024 * 1024  # 50 GB
 PREMIUM_DAILY_LIMIT_100GB = 100 * 1024 * 1024 * 1024 # 100 GB
 
@@ -55,10 +55,25 @@ ZARINPAL_MERCHANT = os.environ.get("ZARINPAL_MERCHANT")
 ZARINPAL_CALLBACK = os.environ.get("ZARINPAL_CALLBACK", "http://localhost:5001/verify")
 
 
-# Admin
-# Expects a comma-separated string of admin IDs, e.g., "12345,67890"
+# --- File Size Limits ---
+# The maximum size for a single file upload/download.
+MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 # 2 GB
+
+
+# Admin & Manual Premium Users
+# ---------------------------
+# ADMIN_IDS: A comma-separated list of user IDs that have access to the admin panel.
+#            e.g., "12345,67890"
+# MANUAL_PREMIUM_USERS: A comma-separated list of user IDs to be granted permanent
+#                       premium status for testing or other purposes.
+#                       e.g., "11111,22222"
+
 admin_ids_str = os.environ.get("ADMIN_IDS", "")
 ADMIN_IDS = [int(admin_id.strip()) for admin_id in admin_ids_str.split(',') if admin_id.strip()]
+
+manual_premium_users_str = os.environ.get("MANUAL_PREMIUM_USERS", "")
+MANUAL_PREMIUM_USERS = [int(user_id.strip()) for user_id in manual_premium_users_str.split(',') if user_id.strip()]
+
 
 if not ADMIN_IDS:
     print("Warning: ADMIN_IDS is not set. Admin panel will not be available to anyone.")
