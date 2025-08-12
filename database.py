@@ -32,7 +32,47 @@ users.create_index([("user_id", ASCENDING)], unique=True)
 pending_payments.create_index([("authority", ASCENDING)], unique=True)
 
 def get_user(user_id):
-    """Fetches a user from the database, creating them if they don't exist."""
+    """
+    Fetches a user from the database.
+    - If the user doesn't exist, it creates a new free user.
+    - If the user_id is in the MANUAL_PREMIUM_USERS list, it ensures
+      the user has permanent premium status.
+    """
+    # Check if the user is a manually designated premium user
+    if user_id in config.MANUAL_PREMIUM_USERS:
+        user = users.find_one({"user_id": user_id})
+
+        # Define permanent premium status
+        permanent_premium_status = {
+            "is_premium": True,
+            "premium_expires": datetime.utcnow() + timedelta(days=3650),  # 10 years
+            "daily_limit_bytes": config.PREMIUM_DAILY_LIMIT_100GB,
+        }
+
+        if user:
+            # If user exists but is not premium, upgrade them
+            if not user.get('is_premium'):
+                users.update_one(
+                    {"user_id": user_id},
+                    {"$set": permanent_premium_status}
+                )
+                logging.info(f"Upgraded user {user_id} to permanent premium via manual list.")
+        else:
+            # If user does not exist, create them as a premium user
+            user = {
+                "user_id": user_id,
+                "daily_usage": 0,
+                "last_reset_day": datetime.utcnow(),
+                "created_at": datetime.utcnow(),
+                **permanent_premium_status
+            }
+            users.insert_one(user)
+            logging.info(f"Created new permanent premium user {user_id} via manual list.")
+
+        # Fetch the latest user data to return
+        return users.find_one({"user_id": user_id})
+
+    # --- Standard User Logic ---
     user = users.find_one({"user_id": user_id})
     if not user:
         user = {
@@ -45,6 +85,7 @@ def get_user(user_id):
             "created_at": datetime.utcnow()
         }
         users.insert_one(user)
+
     return user
 
 def update_usage(user_id, added_bytes):
