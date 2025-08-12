@@ -77,3 +77,15 @@ MANUAL_PREMIUM_USERS = [int(user_id.strip()) for user_id in manual_premium_users
 
 if not ADMIN_IDS:
     print("Warning: ADMIN_IDS is not set. Admin panel will not be available to anyone.")
+
+
+# --- Local Testing ---
+# When True, the bot will enable test commands like /test_upload.
+# It is strongly recommended to keep this False in production.
+LOCAL_TEST_MODE = os.environ.get('LOCAL_TEST_MODE', 'False').lower() == 'true'
+
+
+# --- Job Queue (Redis) ---
+# Connection settings for the Redis server used by Dramatiq for background tasks.
+REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))

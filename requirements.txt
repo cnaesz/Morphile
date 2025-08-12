@@ -6,3 +6,5 @@ httpx
 Flask
 gunicorn
 python-dotenv
+dramatiq[redis]
+redis
