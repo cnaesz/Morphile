@@ -45,16 +45,29 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
     # Finally, send the message
+    # In debug mode, send a detailed error to the user and the admin.
+    # In production, send a generic error to the user.
+    error_message_for_user = "🐞 Oops! Something went wrong. Our team has been notified and is working to fix it. Please try again later."
+
     if config.DEBUG:
-        # If in debug mode, send the detailed error to the user who caused it
-        if update and hasattr(update, 'effective_chat') and update.effective_chat:
+        # Add the traceback to the user message in debug mode
+        traceback_str = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
+        error_message_for_user = (
+            f"🤯 **An Error Occurred (DEBUG MODE) **\n\n"
+            f"**Error:** `{context.error}`\n\n"
+            f"**Traceback:**\n"
+            f"```\n{traceback_str[:3800]}```" # Truncate to fit Telegram message limit
+        )
+
+    if update and hasattr(update, 'effective_chat') and update.effective_chat:
+        try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="A critical error occurred. The developer has been notified.",
+                text=error_message_for_user,
+                parse_mode='MarkdownV2'
             )
-    else:
-        # In production, just log it. The developer can check the logs.
-        pass # The error is already logged by logger.error
+        except Exception as e:
+            logger.error(f"Failed to send error message to user: {e}")
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """A simple command to check if the bot is responsive."""
@@ -170,7 +183,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     # --- Non-blocking download ---
     # Inform user and then perform the async download
     await update.message.reply_text("📥 Starting your download... The bot will remain responsive.")
-    filepath, error = await download_file(url, max_size=user['daily_limit_bytes'])
+    filepath, error = await download_file(url, max_size=config.MAX_FILE_SIZE)
     if error:
         await update.message.reply_text(f"❌ Download Error: {error}")
         return
@@ -218,8 +231,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         )
         return
 
-    if file_obj.file_size > 2 * 1024 * 1024 * 1024:
-        await update.message.reply_text("❌ File size cannot exceed 2 GB.")
+    if file_obj.file_size > config.MAX_FILE_SIZE:
+        await update.message.reply_text(f"❌ File size cannot exceed {config.MAX_FILE_SIZE / 1024**3} GB.")
         return
 
     # --- Time Estimation ---

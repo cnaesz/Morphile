@@ -72,17 +72,34 @@ docker run -d -p 27017:27017 --name morphile-mongo mongo:latest
 
 This command will start a MongoDB container in the background and expose it on the default port.
 
-## Running the Bot
+## Running the Bot for Local Development
 
-### Using Polling (for Local Development)
+The easiest way to run the bot for local development is to use the provided `run_local.sh` script. This script automatically sets `DEBUG="true"` to give you more detailed output and error messages in your console.
 
-Polling is the simplest way to run the bot for local testing. The bot will continuously ask Telegram for new messages.
+1.  **Make the script executable:**
+    ```bash
+    chmod +x run_local.sh
+    ```
 
-```bash
-python bot.py
-```
+2.  **Run the script:**
+    ```bash
+    ./run_local.sh
+    ```
 
-Your bot should now be running! You can interact with it on Telegram. Use the `/ping` command to test if it's responsive.
+Your bot is now running in polling mode. You can interact with it on Telegram. Use the `/ping` command to test if it's responsive.
+
+### Manual Premium Users for Testing
+
+For testing premium features, you can manually grant permanent premium status to any user.
+
+1.  Get the user's numeric Telegram ID (you can use a bot like [@userinfobot](https://t.me/userinfobot)).
+2.  Add the ID to the `MANUAL_PREMIUM_USERS` variable in your `.env` file. If you have multiple IDs, separate them with a comma.
+
+    ```env
+    # .env
+    MANUAL_PREMIUM_USERS="123456789,987654321"
+    ```
+3.  Restart the bot. The specified users will now have 100GB of daily limit and all premium benefits.
 
 ### Using Webhooks (for Production & Testing with ngrok)
 
