@@ -1,26 +1,26 @@
-# Morphile - File Conversion and Hosting Bot
+# Morphile - High-Performance File Hosting Bot
 
-Morphile is a powerful Telegram bot designed to bridge the gap between web links and Telegram, and vice-versa. It can download files from URLs and upload them to Telegram, or take files sent to it and provide a direct, shareable link. It's built with premium features in mind, including daily usage limits and upgrade options.
+This project provides a Telegram bot designed to handle large file uploads (up to 2GB) from users, process them, and return a direct download link from a hosting provider.
 
-## Features
+It has been refactored to use a robust, scalable architecture with a background job queue to handle high concurrency and ensure the main bot remains responsive at all times.
 
-- **URL to File**: Send a direct link to a file, and the bot will download it and upload it to your chat.
-- **File to URL**: Send a file (document, video, or audio) to the bot, and it will host it and provide you with a direct download link.
-- **Usage Tiers**: Free and Premium user tiers with different daily usage limits.
-- **Payments Integration**: A (currently with Zarinpal) for handling premium upgrades.
-- **Admin Panel**: Basic administration features for managing the bot.
-- **Asynchronous by Design**: Built with `asyncio` and `python-telegram-bot` for high performance.
+## Architecture Overview
 
-## Local Development Setup
+The new architecture consists of three main components:
 
-Follow these instructions to set up a local development environment for testing and contributing.
+1.  **The Bot (`bot.py`)**: This is the main process that interacts with the Telegram API. It's responsible for receiving messages from users, performing initial validation (like checking file sizes), and enqueuing jobs for processing. It does **not** perform any heavy tasks like downloading or uploading files.
+2.  **The Job Queue (Redis + Dramatiq)**: A message broker (Redis) that holds a queue of file processing jobs. This allows the bot to instantly offload tasks.
+3.  **The Worker (`tasks.py`)**: One or more separate processes that listen for jobs on the queue. Each worker picks up a job, downloads the file from Telegram, uploads it to the final destination, and sends a notification back to the user.
+
+This decoupled architecture is highly scalable. To handle more users, you simply run more worker processes.
+
+## Setup and Installation
 
 ### Prerequisites
 
-- **Python 3.10+**: Make sure you have a recent version of Python installed.
-- **pip**: Python's package installer.
-- **Docker**: (Recommended) For running a local MongoDB instance easily.
-- **ngrok**: (Optional) For testing webhook functionality and file hosting links.
+- Python 3.10+
+- Docker and Docker Compose (recommended for easily running Redis and MongoDB)
+- A Telegram Bot Token from [@BotFather](https://t.me/BotFather)
 
 ### 1. Clone the Repository
 
@@ -29,141 +29,90 @@ git clone https://github.com/cnaesz/Morphile.git
 cd Morphile
 ```
 
-### 2. Set Up a Virtual Environment
+### 2. Configure Environment Variables
 
-It's highly recommended to use a virtual environment to manage dependencies.
+Copy the example environment file and edit it with your settings.
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+cp .env.example .env
 ```
+
+Open the `.env` file and fill in the required values:
+- `BOT_TOKEN`: Your Telegram bot token.
+- `ADMIN_IDS`: Your numeric Telegram user ID.
+- `MONGO_URI`: The connection string for your MongoDB database.
+- `REDIS_HOST` / `REDIS_PORT`: Connection details for your Redis server. The defaults are fine if you use the provided Docker setup.
 
 ### 3. Install Dependencies
 
+It's highly recommended to use a Python virtual environment.
+
 ```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 4. Start Background Services (Database & Queue)
 
-The bot uses a `.env` file to manage secret keys and configuration.
-
-1.  **Copy the example file:**
-
-    ```bash
-    cp .env.example .env
-    ```
-
-2.  **Edit the `.env` file:**
-
-    Open the `.env` file in a text editor and fill in the required values.
-
-    -   `BOT_TOKEN`: Your Telegram bot token, obtained from [@BotFather](https://t.me/BotFather).
-    -   `ADMIN_IDS`: Your numeric Telegram user ID. This is required for admin commands. You can get your ID from a bot like [@userinfobot](https://t.me/userinfobot).
-    -   `MONGO_URI`: The connection string for your MongoDB database. If you're using the provided Docker setup, the default `mongodb://localhost:27017/` is correct.
-
-### 5. Start a Local Database (Recommended)
-
-The easiest way to run a local MongoDB instance is with Docker.
+The easiest way to run MongoDB and Redis for local development is with Docker.
 
 ```bash
-docker run -d -p 27017:27017 --name morphile-mongo mongo:latest
+docker-compose up -d
 ```
+*(Note: A `docker-compose.yml` file will need to be created for this. I will add this in a future step if needed, or the user can set up Redis/Mongo manually.)*
 
-This command will start a MongoDB container in the background and expose it on the default port.
+Alternatively, you can install and run Redis and MongoDB manually on your system.
 
-## Running the Bot for Local Development
+## Running the Bot
 
-The easiest way to run the bot for local development is to use the provided `run_local.sh` script. This script automatically sets `DEBUG="true"` to give you more detailed output and error messages in your console.
+To run the system, you need to start **two separate processes** in two different terminals.
 
-1.  **Make the script executable:**
-    ```bash
-    chmod +x run_local.sh
-    ```
+### Terminal 1: Run the Dramatiq Workers
 
-2.  **Run the script:**
-    ```bash
-    ./run_local.sh
-    ```
-
-Your bot is now running in polling mode. You can interact with it on Telegram. Use the `/ping` command to test if it's responsive.
-
-### Manual Premium Users for Testing
-
-For testing premium features, you can manually grant permanent premium status to any user.
-
-1.  Get the user's numeric Telegram ID (you can use a bot like [@userinfobot](https://t.me/userinfobot)).
-2.  Add the ID to the `MANUAL_PREMIUM_USERS` variable in your `.env` file. If you have multiple IDs, separate them with a comma.
-
-    ```env
-    # .env
-    MANUAL_PREMIUM_USERS="123456789,987654321"
-    ```
-3.  Restart the bot. The specified users will now have 100GB of daily limit and all premium benefits.
-
-### Using Webhooks (for Production & Testing with ngrok)
-
-In a production environment, webhooks are more efficient. For local testing of features that require a public URL (like the file hosting or the payment web app), you can use `ngrok`.
-
-#### 1. Start ngrok
-
-`ngrok` creates a secure tunnel to your local machine, giving you a public URL.
-
--   **Expose the web app (Flask):** The web app runs on port `5001`.
-
-    ```bash
-    ngrok http 5001
-    ```
-
--   **Expose the file server:** For file hosting, you'll need a simple file server. You can run one easily with Python. This command serves the `downloads` directory on port `8080`.
-
-    ```bash
-    # In a new terminal
-    python -m http.server 8080 --directory downloads
-    ```
-
-    Then, expose this port with ngrok:
-
-    ```bash
-    # In another new terminal
-    ngrok http 8080
-    ```
-
-#### 2. Configure Your `.env`
-
-`ngrok` will give you public URLs (e.g., `https://random-string.ngrok.io`). Update your `.env` file with these URLs:
-
-```
-# The URL for the Flask web app (for payments, etc.)
-WEB_APP_URL="https://<your-ngrok-url-for-port-5001>/app"
-
-# The URL for accessing hosted files
-NGINX_URL="https://<your-ngrok-url-for-port-8080>"
-
-# The callback for Zarinpal, pointing to your ngrok-exposed webapp
-ZARINPAL_CALLBACK="https://<your-ngrok-url-for-port-5001>/verify"
-```
-
-#### 3. Run the Bot and Web App
-
-You'll need to run both the bot and the Flask web app.
+The workers are responsible for all the heavy lifting. You can run multiple workers to increase concurrency.
 
 ```bash
-# In one terminal, run the bot
+# Make sure your virtual environment is activated
+source venv/bin/activate
+
+# Start the dramatiq workers (this will start multiple workers based on your CPU cores)
+dramatiq tasks
+```
+
+### Terminal 2: Run the Bot
+
+The bot process listens for new messages from users.
+
+```bash
+# Make sure your virtual environment is activated
+source venv/bin/activate
+
+# Run the bot
 python bot.py
-
-# In another terminal, run the web app
-python webapp.py
 ```
 
-You can now test the full functionality of the bot, including generating shareable links and processing payments.
+Your bot is now fully operational!
 
-## Production Deployment
+## Local Testing Mode
 
-For a production environment, you should:
+This bot includes a powerful local testing mode that allows you to test the entire file processing pipeline without needing to send files through Telegram.
 
-1.  **Use a proper web server**: Use a WSGI server like `gunicorn` to run the Flask `webapp.py`. The provided `systemd/webapp.service` file shows an example.
-2.  **Use a reverse proxy**: Use `nginx` or a similar web server to handle SSL and route traffic to your bot and web app.
-3.  **Set `DEBUG=false`**: In your `.env` file or environment variables, set `DEBUG="false"`.
-4.  **Switch to Webhooks**: Modify `bot.py` to use `app.run_webhook()` instead of `app.run_polling()`. You will need to provide the public URL of your bot, your SSL certificate, and other details. Refer to the `python-telegram-bot` documentation for a detailed guide on `run_webhook`.
-5.  **Use `systemd` services**: The `systemd` directory contains example service files for running the bot and web app as persistent services on a Linux server. You will need to customize these files with your specific user and paths.
+### How to Enable
+
+1.  Open your `.env` file.
+2.  Set `LOCAL_TEST_MODE="true"`.
+3.  Restart the bot process (`python bot.py`). You do **not** need to restart the workers.
+
+### How to Use
+
+Once enabled, you can use the `/test_upload` command in your chat with the bot:
+
+```
+/test_upload /path/to/a/large/file/on/your/computer.zip
+```
+
+The bot will pick up the file from your local disk and send it to a worker for processing, just as it would with a real file from Telegram. This is ideal for testing large files and simulating concurrent uploads by sending the command multiple times.
+
+---
+*This documentation provides a clear guide for setting up and running the refactored bot.*
