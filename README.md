@@ -14,53 +14,57 @@ The new architecture consists of three main components:
 
 This decoupled architecture is highly scalable. To handle more users, you simply run more worker processes.
 
-## Setup and Installation
+## Setup and Installation Guide
+
+This guide provides step-by-step instructions for setting up the bot for local development or production.
 
 ### Prerequisites
 
 - Python 3.10+
-- Docker and Docker Compose (recommended for easily running Redis and MongoDB)
+- Docker and Docker Compose
 - A Telegram Bot Token from [@BotFather](https://t.me/BotFather)
 
-### 1. Clone the Repository
+### Step 1: Get the Code
 
+Clone the repository to your local machine:
 ```bash
 git clone https://github.com/cnaesz/Morphile.git
 cd Morphile
 ```
 
-### 2. Configure Environment Variables
+### Step 2: Configure Environment Variables
 
-Copy the example environment file and edit it with your settings.
-
+Create a `.env` file from the example and fill in your details.
 ```bash
 cp .env.example .env
 ```
+Now, open the `.env` file and set your `BOT_TOKEN` and any other required variables.
 
-Open the `.env` file and fill in the required values:
-- `BOT_TOKEN`: Your Telegram bot token.
-- `ADMIN_IDS`: Your numeric Telegram user ID.
-- `MONGO_URI`: The connection string for your MongoDB database.
-- `REDIS_HOST` / `REDIS_PORT`: Connection details for your Redis server. The defaults are fine if you use the provided Docker setup.
+### Step 3: Create a Clean Python Environment
 
-### 3. Install Dependencies
+**This is a critical step.** To avoid errors from conflicting libraries, you must install dependencies into a fresh virtual environment. If you have an old environment (e.g., a `venv` or `MyVenv` folder), delete it first.
 
-It's highly recommended to use a Python virtual environment.
+1.  **Create a new virtual environment:**
+    ```bash
+    python -m venv venv
+    ```
+2.  **Activate the environment:**
+    -   On Windows: `venv\Scripts\activate`
+    -   On macOS/Linux: `source venv/bin/activate`
 
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+3.  **Install all dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### 4. Start Background Services (Database & Queue)
+### Step 4: Start Background Services (Database & Queue)
 
-The easiest way to run MongoDB and Redis for local development is with Docker.
+The bot requires MongoDB and Redis to be running. The easiest way to start them is using the included `docker-compose.yml` file.
 
 ```bash
 docker-compose up -d
 ```
-*(Note: A `docker-compose.yml` file will need to be created for this. I will add this in a future step if needed, or the user can set up Redis/Mongo manually.)*
+This command will download the necessary images and start both services in the background.
 
 Alternatively, you can install and run Redis and MongoDB manually on your system.
 
