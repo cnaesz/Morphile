@@ -1,0 +1,42 @@
+# Systemd service file for the Telegram bot process
+#
+# To use:
+# 1. Replace placeholders like <user> and /path/to/your/project.
+# 2. Copy this file to /etc/systemd/system/telegram-bot.service
+# 3. Run `sudo systemctl daemon-reload`
+# 4. Run `sudo systemctl enable telegram-bot.service` to start on boot.
+# 5. Run `sudo systemctl start telegram-bot.service` to start it now.
+# 6. Check status with `sudo systemctl status telegram-bot.service`.
+# 7. View logs with `sudo journalctl -u telegram-bot -f`.
+
+[Unit]
+Description=Telegram File Processing Bot
+After=network.target
+
+[Service]
+# User and Group that will run the process
+User=<user>
+Group=<group>
+
+# The working directory for the bot
+WorkingDirectory=/path/to/your/project
+
+# The command to start the bot
+# It must use the absolute path to the python executable in the virtual environment.
+ExecStart=/path/to/your/project/venv/bin/python bot.py
+
+# Environment file (stores BOT_TOKEN, etc.)
+# Use an absolute path.
+EnvironmentFile=/path/to/your/project/.env
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Standard output and error logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-bot
+
+[Install]
+WantedBy=multi-user.target

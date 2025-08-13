@@ -5,11 +5,11 @@ import asyncio
 import os
 import logging
 import time
+import shutil
 
 import config
 
 # --- Logging Setup ---
-# Ensure logs from tasks are visible
 log_level = logging.DEBUG if config.DEBUG else logging.INFO
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -18,99 +18,121 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# --- Dramatiq Setup ---
+# --- Dramatiq Broker Setup ---
 redis_broker = RedisBroker(host=config.REDIS_HOST, port=config.REDIS_PORT)
 dramatiq.set_broker(redis_broker)
 
 
-# --- Uploader Logic ---
-def placeholder_uploader(filepath, chat_id):
+# --- File Handling Logic ---
+def _move_and_get_link(source_path, chat_id, is_local_test=False):
     """
-    Placeholder for the actual file upload logic to your hosting service.
+    Moves or copies the file to the public directory and returns the public link.
     """
-    logger.info(f"[{chat_id}] Starting upload of {filepath}...")
-    # Simulate a long upload process
-    time.sleep(10)
-    filename = os.path.basename(filepath)
-    # In a real scenario, this link would come from your hosting provider
-    link = f"http://your-hosting-service.com/{filename}"
-    logger.info(f"[{chat_id}] Finished upload. Link: {link}")
-    return link
+    filename = os.path.basename(source_path)
+    # Sanitize filename to prevent path traversal issues, though os.path.basename helps.
+    safe_filename = "".join(c for c in filename if c.isalnum() or c in ('.', '_', '-'))
+
+    destination_path = os.path.join(config.PUBLIC_FILES_DIR, safe_filename)
+
+    # To avoid deleting user's original file in local testing, we copy it.
+    # In production (download from Telegram), we move it.
+    if is_local_test:
+        shutil.copy(source_path, destination_path)
+        logger.info(f"[{chat_id}] Copied test file to public dir: {destination_path}")
+    else:
+        shutil.move(source_path, destination_path)
+        logger.info(f"[{chat_id}] Moved file to public dir: {destination_path}")
+
+    # Construct the final public URL
+    public_link = f"{config.BASE_URL}/{safe_filename}"
+    return public_link
 
 
-# --- Asynchronous Helper for Telegram Operations ---
-async def download_and_notify(bot, chat_id, file_id, message_id):
+# --- Asynchronous Telegram Operations ---
+async def _run_processing_logic(bot_token, chat_id, message_id, file_id=None, local_path=None):
     """
-    Handles the asynchronous download from Telegram and notifications.
+    This async function contains all the logic that interacts with the Telegram API.
     """
-    filepath = None
+    bot = telegram.Bot(token=bot_token)
+    temp_filepath = None
+    is_local_test = bool(local_path)
+
     try:
-        # 1. Initial "processing" message
-        await bot.send_message(chat_id, "File is now being processed...", reply_to_message_id=message_id)
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id, text="⏳ File processing started..."
+        )
 
-        # 2. Download the file
-        logger.info(f"[{chat_id}] Getting file info for file_id: {file_id}")
-        file = await bot.get_file(file_id)
+        if file_id:
+            # Production Mode: Download from Telegram
+            logger.info(f"[{chat_id}] Getting file info for file_id: {file_id}")
+            tg_file = await bot.get_file(file_id)
 
-        # Generate a unique path for the download
-        unique_filename = f"{chat_id}_{os.path.basename(file.file_path or 'unknown_file')}"
-        filepath = os.path.join(config.DOWNLOAD_DIR, unique_filename)
+            unique_filename = f"{chat_id}_{int(time.time())}_{os.path.basename(tg_file.file_path or 'unknown_file')}"
+            temp_filepath = os.path.join(config.DOWNLOAD_DIR, unique_filename)
 
-        logger.info(f"[{chat_id}] Starting download to: {filepath}")
-        await file.download_to_drive(filepath)
-        logger.info(f"[{chat_id}] Download finished.")
+            logger.info(f"[{chat_id}] Downloading to: {temp_filepath}")
+            await tg_file.download_to_drive(temp_filepath)
+            logger.info(f"[{chat_id}] Download finished.")
 
-        # 3. Upload to final destination
-        direct_link = placeholder_uploader(filepath, chat_id)
+            filepath_to_process = temp_filepath
 
-        # 4. Notify user of success
-        await bot.send_message(chat_id, f"✅ File processed successfully!\n\nYour direct link is: {direct_link}")
+        elif local_path and config.LOCAL_TEST_MODE:
+            # Local Test Mode: Use local file path
+            logger.info(f"[{chat_id}] Using local file: {local_path}")
+            if not os.path.exists(local_path):
+                raise FileNotFoundError(f"Local test file not found: {local_path}")
+            filepath_to_process = local_path
+
+        else:
+            raise ValueError("Task called without file_id or a valid local_path.")
+
+        # Move file to public dir and get the link
+        direct_link = _move_and_get_link(filepath_to_process, chat_id, is_local_test)
+
+        # Notify User of Success
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id,
+            text=f"✅ File processed successfully!\n\nYour direct link is:\n{direct_link}",
+            disable_web_page_preview=True
+        )
 
     except telegram.error.NetworkError as e:
-        logger.warning(f"[{chat_id}] A network error occurred: {e}. This might be retried.")
-        await bot.send_message(chat_id, f"⚠️ A network issue occurred: {e}. The bot will retry automatically.")
-        # Re-raise the exception to trigger dramatiq's retry mechanism
+        logger.warning(f"[{chat_id}] A network error occurred: {e}. Dramatiq will retry.")
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id,
+            text=f"⚠️ A network issue occurred: {e}. The bot will retry automatically."
+        )
         raise
+
     except Exception as e:
-        logger.error(f"[{chat_id}] A critical error occurred in download_and_notify: {e}", exc_info=True)
-        await bot.send_message(chat_id, f"❌ A critical error occurred while processing your file. The operation has been cancelled. Error: {e}")
+        logger.error(f"[{chat_id}] A critical error occurred in processing task: {e}", exc_info=True)
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=f"❌ A critical error occurred.\n\n`Error: {e}`"
+            )
+        except Exception as notify_error:
+            logger.error(f"[{chat_id}] Failed to notify user of the error: {notify_error}")
 
     finally:
-        # 5. Cleanup the downloaded file
-        if filepath and os.path.exists(filepath):
-            os.remove(filepath)
-            logger.info(f"[{chat_id}] Cleaned up temporary file: {filepath}")
+        # Cleanup the temporary downloaded file (if it exists)
+        if temp_filepath and os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+            logger.info(f"[{chat_id}] Cleaned up temporary file: {temp_filepath}")
 
 
-@dramatiq.actor(max_retries=3, time_limit=3600_000) # 1 hour time limit
+# --- Dramatiq Actor Definition ---
+@dramatiq.actor(max_retries=3, time_limit=3600_000)
 def process_file(chat_id, message_id, file_id=None, local_path=None):
     """
-    Dramatiq actor that orchestrates file processing.
+    Synchronous Dramatiq actor that runs the async processing logic.
     """
-    bot = telegram.Bot(token=config.BOT_TOKEN)
-    logger.info(f"[{chat_id}] Worker picked up job. file_id={file_id}, local_path={local_path}")
+    logger.info(f"Worker picked up job for chat_id={chat_id}, file_id={file_id}")
 
-    if file_id:
-        # --- Production Mode ---
-        # Run the async helper function to handle the Telegram download and notifications
-        asyncio.run(download_and_notify(bot, chat_id, file_id, message_id))
+    asyncio.run(_run_processing_logic(
+        bot_token=config.BOT_TOKEN,
+        chat_id=chat_id, message_id=message_id,
+        file_id=file_id, local_path=local_path
+    ))
 
-    elif local_path and config.LOCAL_TEST_MODE:
-        # --- Local Test Mode ---
-        try:
-            logger.info(f"[{chat_id}] Processing local file: {local_path}")
-            if not os.path.exists(local_path):
-                raise FileNotFoundError(f"Local file not found: {local_path}")
-
-            # Upload the local file
-            direct_link = placeholder_uploader(local_path, chat_id)
-
-            # Notify user of success
-            asyncio.run(bot.send_message(chat_id, f"✅ LOCAL TEST: File processed successfully!\n\nLink: {direct_link}"))
-
-        except Exception as e:
-            logger.error(f"[{chat_id}] Error processing local file: {e}", exc_info=True)
-            asyncio.run(bot.send_message(chat_id, f"❌ LOCAL TEST: An error occurred: {e}"))
-
-    else:
-        logger.warning(f"[{chat_id}] Job was called with invalid parameters.")
+    logger.info(f"Worker finished job for chat_id={chat_id}")

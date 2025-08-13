@@ -1,122 +1,86 @@
 # Morphile - High-Performance File Hosting Bot
 
-This project provides a Telegram bot designed to handle large file uploads (up to 2GB) from users, process them, and return a direct download link from a hosting provider.
+This project provides a Telegram bot designed to handle large file uploads (up to 2GB) from users, process them, and return a direct download link.
 
-It has been refactored to use a robust, scalable architecture with a background job queue to handle high concurrency and ensure the main bot remains responsive at all times.
+It uses a robust, scalable architecture with a background job queue (Dramatiq and Redis) to handle high concurrency and ensure the main bot remains responsive at all times.
 
 ## Architecture Overview
 
-The new architecture consists of three main components:
+1.  **The Bot (`bot.py`)**: The main process that interacts with the Telegram API. It handles user messages, performs initial checks, and enqueues jobs for processing.
+2.  **The Job Queue (Redis + Dramatiq)**: A message broker that holds a queue of file processing jobs, allowing the bot to instantly offload heavy tasks.
+3.  **The Worker (`tasks.py`)**: One or more separate processes that listen for jobs. Each worker downloads the file from Telegram, moves it to a public directory, and notifies the user with a download link.
+4.  **The File Server (`local_server.py` / Nginx)**: A web server that makes the files in the public directory accessible via a URL.
 
-1.  **The Bot (`bot.py`)**: This is the main process that interacts with the Telegram API. It's responsible for receiving messages from users, performing initial validation (like checking file sizes), and enqueuing jobs for processing. It does **not** perform any heavy tasks like downloading or uploading files.
-2.  **The Job Queue (Redis + Dramatiq)**: A message broker (Redis) that holds a queue of file processing jobs. This allows the bot to instantly offload tasks.
-3.  **The Worker (`tasks.py`)**: One or more separate processes that listen for jobs on the queue. Each worker picks up a job, downloads the file from Telegram, uploads it to the final destination, and sends a notification back to the user.
+## Local Development Setup
 
-This decoupled architecture is highly scalable. To handle more users, you simply run more worker processes.
-
-## Setup and Installation Guide
-
-This guide provides step-by-step instructions for setting up the bot for local development or production.
+This guide provides step-by-step instructions for running the bot on your local machine.
 
 ### Prerequisites
 
 - Python 3.10+
-- Docker and Docker Compose
-- A Telegram Bot Token from [@BotFather](https://t.me/BotFather)
+- Redis
+- MongoDB
 
-### Step 1: Get the Code
+You can run Redis and MongoDB easily using Docker:
+```bash
+docker run --name some-redis -d -p 6379:6379 redis
+docker run --name some-mongo -d -p 27017:27017 mongo
+```
 
-Clone the repository to your local machine:
+### Step 1: Get the Code & Install Dependencies
+
 ```bash
 git clone https://github.com/cnaesz/Morphile.git
 cd Morphile
-```
-
-### Step 2: Configure Environment Variables
-
-Create a `.env` file from the example and fill in your details.
-```bash
-cp .env.example .env
-```
-Now, open the `.env` file and set your `BOT_TOKEN` and any other required variables.
-
-### Step 3: Create a Clean Python Environment
-
-**This is a critical step.** To avoid errors from conflicting libraries, you must install dependencies into a fresh virtual environment. If you have an old environment (e.g., a `venv` or `MyVenv` folder), delete it first.
-
-1.  **Create a new virtual environment:**
-    ```bash
-    python -m venv venv
-    ```
-2.  **Activate the environment:**
-    -   On Windows: `venv\Scripts\activate`
-    -   On macOS/Linux: `source venv/bin/activate`
-
-3.  **Install all dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-### Step 4: Start Background Services (Database & Queue)
-
-The bot requires MongoDB and Redis to be running. The easiest way to start them is using the included `docker-compose.yml` file.
-
-```bash
-docker-compose up -d
-```
-This command will download the necessary images and start both services in the background.
-
-Alternatively, you can install and run Redis and MongoDB manually on your system.
-
-## Running the Bot
-
-To run the system, you need to start **two separate processes** in two different terminals.
-
-### Terminal 1: Run the Dramatiq Workers
-
-The workers are responsible for all the heavy lifting. You can run multiple workers to increase concurrency.
-
-```bash
-# Make sure your virtual environment is activated
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+```
 
-# Start the dramatiq workers (this will start multiple workers based on your CPU cores)
+### Step 2: Configure Your Environment
+
+1.  Rename `.env.example` to `.env`.
+2.  Open the `.env` file and fill in your `BOT_TOKEN` and `ADMIN_IDS`.
+3.  For local testing, the default `BASE_URL="http://localhost:8080"` is recommended. Ensure the `LOCAL_SERVER_PORT` matches.
+
+### Step 3: Run the Full System
+
+To run the bot locally, you need to start **three separate processes** in three different terminal tabs (with the virtual environment activated in each).
+
+**Terminal 1: Start the Dramatiq Workers**
+```bash
+# Start the background workers
 dramatiq tasks
 ```
+This process executes the long-running file download and move operations.
 
-### Terminal 2: Run the Bot
-
-The bot process listens for new messages from users.
-
+**Terminal 2: Start the Local File Server**
 ```bash
-# Make sure your virtual environment is activated
-source venv/bin/activate
-
-# Run the bot
-python bot.py
+# Serve files from the public directory
+python3 local_server.py
 ```
+This process makes the final files available at `http://localhost:8080`.
 
-Your bot is now fully operational!
-
-## Local Testing Mode
-
-This bot includes a powerful local testing mode that allows you to test the entire file processing pipeline without needing to send files through Telegram.
-
-### How to Enable
-
-1.  Open your `.env` file.
-2.  Set `LOCAL_TEST_MODE="true"`.
-3.  Restart the bot process (`python bot.py`). You do **not** need to restart the workers.
-
-### How to Use
-
-Once enabled, you can use the `/test_upload` command in your chat with the bot:
-
+**Terminal 3: Start the Bot**
+```bash
+# Run the main bot process
+python3 bot.py
 ```
-/test_upload /path/to/a/large/file/on/your/computer.zip
-```
+This process listens for new messages from users.
 
-The bot will pick up the file from your local disk and send it to a worker for processing, just as it would with a real file from Telegram. This is ideal for testing large files and simulating concurrent uploads by sending the command multiple times.
+Your bot is now fully operational for local testing!
 
----
-*This documentation provides a clear guide for setting up and running the refactored bot.*
+## Testing the Full Flow
+
+1.  Start the three processes as described above.
+2.  Open Telegram and send a file to your bot.
+3.  The bot will reply, and the message will be updated as the file is processed by the worker.
+4.  The final message will contain a direct download link (e.g., `http://localhost:8080/your_file.mp3`).
+5.  Click the link in your browser to download the file, which is being served by your `local_server.py`.
+
+### Using Local Test Mode
+
+For even faster testing without needing to upload files to Telegram:
+1.  In your `.env` file, set `LOCAL_TEST_MODE="true"`.
+2.  Restart the bot process (`python3 bot.py`).
+3.  Use the command `/test_upload /path/to/a/large/file.zip` in your chat with the bot. The worker will copy this file to the public directory and return a link.

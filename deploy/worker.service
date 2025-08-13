@@ -1,0 +1,43 @@
+# Systemd service file for the Dramatiq worker processes
+#
+# To use:
+# 1. Replace placeholders like <user> and /path/to/your/project.
+# 2. Copy this file to /etc/systemd/system/dramatiq-worker.service
+# 3. Run `sudo systemctl daemon-reload`
+# 4. Run `sudo systemctl enable dramatiq-worker.service` to start on boot.
+# 5. Run `sudo systemctl start dramatiq-worker.service` to start it now.
+# 6. Check status with `sudo systemctl status dramatiq-worker.service`.
+# 7. View logs with `sudo journalctl -u dramatiq-worker -f`.
+
+[Unit]
+Description=Dramatiq Workers for Telegram Bot
+After=network.target redis.service mongodb.service # Ensure dependencies are up
+
+[Service]
+# User and Group that will run the process
+User=<user>
+Group=<group>
+
+# The working directory for the workers
+WorkingDirectory=/path/to/your/project
+
+# The command to start the Dramatiq workers
+# It must use the absolute path to the dramatiq executable in the virtual environment.
+# The --processes flag can be adjusted based on your server's CPU cores.
+ExecStart=/path/to/your/project/venv/bin/dramatiq tasks --processes 8
+
+# Environment file (for database/service connection details)
+# Use an absolute path.
+EnvironmentFile=/path/to/your/project/.env
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Standard output and error logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dramatiq-worker
+
+[Install]
+WantedBy=multi-user.target
