@@ -22,19 +22,24 @@ if not BOT_TOKEN:
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 DATABASE_NAME = "filebot"
 
-# --- File paths ---
-# Use a local 'downloads' directory for storing files.
-# This is more portable than a system path like /var/www.
+# --- File Paths ---
+# DOWNLOAD_DIR: Temporary directory for files downloaded from Telegram.
+# PUBLIC_FILES_DIR: Directory where final, processed files are stored to be served publicly.
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads")
-# Ensure the download directory exists
+PUBLIC_FILES_DIR = os.environ.get("PUBLIC_FILES_DIR", "public_files")
+# Ensure directories exist
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(PUBLIC_FILES_DIR, exist_ok=True)
 
 
-# --- Web Server URLs ---
-# These URLs are used for the web app and for serving files.
-# They can be overridden by environment variables, which is useful for ngrok.
-NGINX_URL = os.environ.get("NGINX_URL", "http://localhost:8080/files")
-WEB_APP_URL = os.environ.get("WEB_APP_URL", "http://localhost:5001/app")
+# --- Public URL and Server Config ---
+# BASE_URL: The public-facing base URL where your files will be accessible.
+# For local testing, this will be your local server (e.g., http://localhost:8080).
+# For production, this will be your domain (e.g., http://your-domain.com/files).
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080").rstrip('/')
+
+# LOCAL_SERVER_PORT: The port for the simple Python HTTP server for local testing.
+LOCAL_SERVER_PORT = int(os.environ.get("LOCAL_SERVER_PORT", 8080))
 
 
 # Usage Limits

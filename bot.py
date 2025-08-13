@@ -49,7 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler for the /test_upload command.
-    Only works if LOCAL_TEST_MODE is enabled in the config.
+    This now sends an initial message that the worker can edit.
     """
     if not config.LOCAL_TEST_MODE:
         await update.message.reply_text("This command is only available in local testing mode.")
@@ -60,25 +60,28 @@ async def test_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     local_path = context.args[0]
-    chat_id = update.effective_chat.id
-    message_id = update.message.message_id
-
     if not os.path.exists(local_path):
         await update.message.reply_text(f"File not found at path: {local_path}")
         return
 
-    logger.info(f"Queueing local file for upload: {local_path}")
-    process_file.send(chat_id, message_id, local_path=local_path)
-
-    await update.message.reply_text(
+    # Send the initial status message and get its ID
+    status_message = await update.message.reply_text(
         f"✅ Your test file has been added to the queue.\n"
         f"It will be processed in the background."
     )
 
+    # Enqueue the job, passing the ID of the status message
+    chat_id = update.effective_chat.id
+    message_id = status_message.message_id
+    logger.info(f"Queueing local file for upload: {local_path}")
+    process_file.send(chat_id, message_id, local_path=local_path)
+
+
 # --- Message Handler for Files ---
 async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handles incoming files (documents, videos, audio) and enqueues them for processing.
+    Handles incoming files, sends an initial status message, and enqueues
+    the file for processing.
     """
     user = update.effective_user
     db_user = get_user(user.id)
@@ -87,7 +90,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not file_obj:
         return
 
-    # 1. Check file size before anything else
+    # 1. Check file size
     if file_obj.file_size > config.MAX_FILE_SIZE:
         await update.message.reply_text(
             f"❌ File is too large ({file_obj.file_size / 1024**3:.2f} GB). "
@@ -100,25 +103,46 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⚠️ You have reached your daily usage limit. Please try again tomorrow or upgrade your account.")
         return
 
-    # 3. Enqueue the file for processing
-    chat_id = update.effective_chat.id
-    message_id = update.message.message_id
-    file_id = file_obj.file_id
-
-    logger.info(f"Queueing file for processing: chat_id={chat_id}, file_id={file_id}")
-    process_file.send(chat_id, message_id, file_id=file_id)
-
-    # 4. Notify the user
-    await update.message.reply_text(
+    # 3. Send initial status message that the worker can edit
+    status_message = await update.message.reply_text(
         f"✅ Your file '{file_obj.file_name}' has been added to the queue.\n"
         f"You will be notified when the processing is complete."
     )
+
+    # 4. Enqueue the file for processing, passing the ID of the status message
+    chat_id = update.effective_chat.id
+    message_id = status_message.message_id
+    file_id = file_obj.file_id
+
+    logger.info(f"Queueing file for processing: chat_id={chat_id}, file_id={file_id}, status_message_id={message_id}")
+    process_file.send(chat_id, message_id, file_id=file_id)
+
+
+# --- Monkey-patch for JobQueue issue ---
+# In python-telegram-bot v20.6, ApplicationBuilder.__init__ eagerly creates a
+# JobQueue instance, which can fail on systems with unsupported timezones.
+# We replace it with a dummy class before building the application.
+from telegram.ext import JobQueue
+import telegram.ext._applicationbuilder as app_builder
+
+class _DummyJobQueue(JobQueue):
+    def __init__(self):
+        # This dummy __init__ does nothing, preventing the problematic
+        # APScheduler initialization from ever running.
+        pass
+
+# The actual monkey-patch
+app_builder.JobQueue = _DummyJobQueue
 
 
 # --- Main Application Setup ---
 def main():
     """Starts the bot."""
-    app = Application.builder().token(config.BOT_TOKEN).build()
+    # Now, when Application.builder() is called, it will use our _DummyJobQueue
+    # inside its __init__, which does nothing and avoids the error.
+    # We still call .job_queue(None) to ensure the final Application object
+    # correctly has no job queue.
+    app = Application.builder().token(config.BOT_TOKEN).job_queue(None).build()
 
     # --- Error Handling ---
     app.add_error_handler(error_handler)
