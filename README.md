@@ -2,85 +2,81 @@
 
 This project provides a Telegram bot designed to handle large file uploads (up to 2GB) from users, process them, and return a direct download link.
 
-It uses a robust, scalable architecture with a background job queue (Dramatiq and Redis) to handle high concurrency and ensure the main bot remains responsive at all times.
+It uses a robust, scalable architecture with a background job queue (Dramatiq and Redis) and a **Telethon userbot** for high-performance downloading of forwarded and large files.
 
 ## Architecture Overview
 
-1.  **The Bot (`bot.py`)**: The main process that interacts with the Telegram API. It handles user messages, performs initial checks, and enqueues jobs for processing.
-2.  **The Job Queue (Redis + Dramatiq)**: A message broker that holds a queue of file processing jobs, allowing the bot to instantly offload heavy tasks.
-3.  **The Worker (`tasks.py`)**: One or more separate processes that listen for jobs. Each worker downloads the file from Telegram, moves it to a public directory, and notifies the user with a download link.
-4.  **The File Server (`local_server.py` / Nginx)**: A web server that makes the files in the public directory accessible via a URL.
+1.  **The Bot (`bot.py`)**: The main process that interacts with the Telegram API. It handles user messages and enqueues jobs for processing.
+2.  **The Job Queue (Redis + Dramatiq)**: A message broker that holds a queue of file processing jobs.
+3.  **The Worker (`tasks.py`)**: Executes jobs from the queue. It uses two methods for downloading:
+    -   **Bot API**: For files sent directly to the bot (up to 20 MB).
+    -   **Telethon Userbot**: For files forwarded to the bot, bypassing the 20 MB limit and allowing up to 2 GB.
+4.  **The File Server (`local_server.py` / Nginx)**: A web server that makes the final files publicly accessible.
 
-## Local Development Setup
+## Setup Guide
 
-This guide provides step-by-step instructions for running the bot on your local machine.
+### Step 1: Get Telegram API Credentials (for Userbot)
 
-### Prerequisites
+To handle forwarded files, the bot uses a "userbot" account via Telethon. This requires your personal Telegram API credentials.
 
-- Python 3.10+
-- Redis
-- MongoDB
-
-You can run Redis and MongoDB easily using Docker:
-```bash
-docker run --name some-redis -d -p 6379:6379 redis
-docker run --name some-mongo -d -p 27017:27017 mongo
-```
-
-### Step 1: Get the Code & Install Dependencies
-
-```bash
-git clone https://github.com/cnaesz/Morphile.git
-cd Morphile
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+1.  Go to **[my.telegram.org](https://my.telegram.org)** and log in with your Telegram account.
+2.  Click on "**API development tools**".
+3.  Fill out the "Create New Application" form. You can name it "Morphile Bot" or anything you like.
+4.  You will be given an `api_id` and `api_hash`. **Keep these secret.**
 
 ### Step 2: Configure Your Environment
 
-1.  Rename `.env.example` to `.env`.
-2.  Open the `.env` file and fill in your `BOT_TOKEN` and `ADMIN_IDS`.
-3.  For local testing, the default `BASE_URL="http://localhost:8080"` is recommended. Ensure the `LOCAL_SERVER_PORT` matches.
+1.  Clone the repository: `git clone https://github.com/cnaesz/Morphile.git && cd Morphile`
+2.  Create a virtual environment: `python3 -m venv venv && source venv/bin/activate`
+3.  Install dependencies: `pip install -r requirements.txt`
+4.  Rename `.env.example` to `.env`.
+5.  Open `.env` and fill in:
+    -   `BOT_TOKEN` (from BotFather)
+    -   `ADMIN_IDS` (your numeric user ID)
+    -   `API_ID` and `API_HASH` (from Step 1)
 
-### Step 3: Run the Full System
+### Step 3: Create the Userbot Session File (One-Time Setup)
 
-To run the bot locally, you need to start **three separate processes** in three different terminal tabs (with the virtual environment activated in each).
+The first time you run the userbot, Telethon needs to log in interactively to create a `.session` file. This stores your session so you don't have to log in again.
 
-**Terminal 1: Start the Dramatiq Workers**
+**It is highly recommended to do this on your local machine before deploying.**
+
+1.  Make sure your `.env` file is configured correctly.
+2.  Start a worker in your terminal: `dramatiq tasks`
+3.  In Telegram, **forward a file** to your bot.
+4.  The worker terminal will now prompt you to enter your **phone number**, **password**, and **2FA code**.
+5.  After you log in, a new file named `morphile_userbot.session` (or whatever you set `SESSION_NAME` to) will be created. This file is your active session. **Keep it secret.**
+
+You only need to do this once. The session file will be used for all future logins.
+
+### Step 4: Run the Full System Locally
+
+To run the bot locally, you need three separate processes in three different terminals.
+
+**Terminal 1: Start Dramatiq Workers**
 ```bash
-# Start the background workers
 dramatiq tasks
 ```
-This process executes the long-running file download and move operations.
 
 **Terminal 2: Start the Local File Server**
 ```bash
-# Serve files from the public directory
 python3 local_server.py
 ```
-This process makes the final files available at `http://localhost:8080`.
 
 **Terminal 3: Start the Bot**
 ```bash
-# Run the main bot process
 python3 bot.py
 ```
-This process listens for new messages from users.
 
-Your bot is now fully operational for local testing!
+Your bot is now fully operational and can handle both direct and forwarded files.
 
-## Testing the Full Flow
+## Production Deployment
 
-1.  Start the three processes as described above.
-2.  Open Telegram and send a file to your bot.
-3.  The bot will reply, and the message will be updated as the file is processed by the worker.
-4.  The final message will contain a direct download link (e.g., `http://localhost:8080/your_file.mp3`).
-5.  Click the link in your browser to download the file, which is being served by your `local_server.py`.
+The deployment process is similar to the local setup but uses `systemd` to manage the processes and `nginx` to serve files.
 
-### Using Local Test Mode
-
-For even faster testing without needing to upload files to Telegram:
-1.  In your `.env` file, set `LOCAL_TEST_MODE="true"`.
-2.  Restart the bot process (`python3 bot.py`).
-3.  Use the command `/test_upload /path/to/a/large/file.zip` in your chat with the bot. The worker will copy this file to the public directory and return a link.
+1.  Copy the entire project to your server.
+2.  Set up your `.env` file with production values (e.g., your public `BASE_URL`).
+3.  **Important**: Copy your generated `.session` file to the project directory on the server.
+4.  Use the sample `deploy/bot.service` and `deploy/worker.service` files to set up `systemd`.
+5.  Use the sample `deploy/nginx.conf` to configure Nginx to serve your `public_files` directory.
+6.  Start the services using `sudo systemctl start telegram-bot dramatiq-worker`.

@@ -109,13 +109,30 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"You will be notified when the processing is complete."
     )
 
-    # 4. Enqueue the file for processing, passing the ID of the status message
+    # 4. Enqueue the file for processing
     chat_id = update.effective_chat.id
-    message_id = status_message.message_id
+    status_message_id = status_message.message_id
+    original_message_id = update.message.message_id # The ID of the message with the file
     file_id = file_obj.file_id
 
-    logger.info(f"Queueing file for processing: chat_id={chat_id}, file_id={file_id}, status_message_id={message_id}")
-    process_file.send(chat_id, message_id, file_id=file_id)
+    # Detect if the message is a forward to use the appropriate download method
+    is_forwarded = update.message.forward_date is not None
+    if is_forwarded and not (config.API_ID and config.API_HASH):
+        await status_message.edit_text("❌ This bot is not configured to handle forwarded files. Please send the file directly.")
+        return
+
+    logger.info(
+        f"Queueing file for processing: chat_id={chat_id}, file_id={file_id}, "
+        f"status_message_id={status_message_id}, original_message_id={original_message_id}, "
+        f"is_forwarded={is_forwarded}"
+    )
+    process_file.send(
+        chat_id,
+        status_message_id=status_message_id,
+        original_message_id=original_message_id,
+        file_id=file_id,
+        is_forwarded=is_forwarded
+    )
 
 
 # --- Monkey-patch for JobQueue issue ---
