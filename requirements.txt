@@ -17,3 +17,4 @@ gunicorn
 python-dotenv
 dramatiq[redis]
 redis
+telethon

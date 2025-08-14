@@ -42,6 +42,18 @@ BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080").rstrip('/')
 LOCAL_SERVER_PORT = int(os.environ.get("LOCAL_SERVER_PORT", 8080))
 
 
+# --- Userbot (Telethon) Configuration ---
+# To handle forwarded messages and download large files, a userbot is required.
+# Get your API ID and HASH from https://my.telegram.org
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
+SESSION_NAME = os.environ.get("SESSION_NAME", "morphile_userbot") # The name for the .session file
+
+# Check for required userbot variables
+if not all([API_ID, API_HASH]):
+    print("Warning: API_ID and API_HASH are not set in the environment. The bot will not be able to handle forwarded files.")
+
+
 # Usage Limits
 FREE_DAILY_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GB
 PREMIUM_DAILY_LIMIT_50GB = 50 * 1024 * 1024 * 1024  # 50 GB
